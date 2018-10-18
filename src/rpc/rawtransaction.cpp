@@ -124,6 +124,8 @@ void TxToJSON(const Config &config, const CTransaction &tx,
             }
         }
     }
+
+    entry.push_back(Pair("hex", EncodeHexTx(tx, RPCSerializationFlags())));
 }
 
 static UniValue getrawtransaction(const Config &config,

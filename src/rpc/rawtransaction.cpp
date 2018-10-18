@@ -64,7 +64,7 @@ void ScriptPubKeyToJSON(const Config &config, const CScript &scriptPubKey,
 }
 
 void TxToJSON(const Config &config, const CTransaction &tx,
-              const uint256 hashBlock, UniValue &entry) {
+              const uint256 hashBlock, UniValue &entry, bool include_hex) {
     entry.push_back(Pair("txid", tx.GetId().GetHex()));
     entry.push_back(Pair("hash", tx.GetHash().GetHex()));
     entry.push_back(Pair(
@@ -125,7 +125,9 @@ void TxToJSON(const Config &config, const CTransaction &tx,
         }
     }
 
-    entry.push_back(Pair("hex", EncodeHexTx(tx, RPCSerializationFlags())));
+    if (include_hex) {
+        entry.push_back(Pair("hex", EncodeHexTx(tx, RPCSerializationFlags())));
+    }
 }
 
 static UniValue getrawtransaction(const Config &config,
@@ -651,7 +653,7 @@ static UniValue decoderawtransaction(const Config &config,
     }
 
     UniValue result(UniValue::VOBJ);
-    TxToJSON(config, CTransaction(std::move(mtx)), uint256(), result);
+    TxToJSON(config, CTransaction(std::move(mtx)), uint256(), result, false);
 
     return result;
 }

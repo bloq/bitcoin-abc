@@ -5,8 +5,8 @@
 DIST_SUBDIRS = secp256k1 univalue
 
 AM_LDFLAGS = $(PTHREAD_CFLAGS) $(LIBTOOL_LDFLAGS) $(HARDENED_LDFLAGS) $(SANITIZER_LDFLAGS)
-AM_CXXFLAGS = $(HARDENED_CXXFLAGS) $(ERROR_CXXFLAGS) $(SANITIZER_CXXFLAGS)
-AM_CPPFLAGS = $(HARDENED_CPPFLAGS)
+AM_CXXFLAGS = $(DEBUG_CXXFLAGS) $(HARDENED_CXXFLAGS) $(ERROR_CXXFLAGS) $(SANITIZER_CXXFLAGS)
+AM_CPPFLAGS = $(DEBUG_CPPFLAGS) $(HARDENED_CPPFLAGS)
 EXTRA_LIBRARIES =
 
 if EMBEDDED_UNIVALUE
@@ -105,6 +105,7 @@ BITCOIN_CORE_H = \
   spentindex.h \
   timestampindex.h \
   addrman.h \
+  avalanche.h \
   base58.h \
   bloom.h \
   blockencodings.h \
@@ -160,10 +161,14 @@ BITCOIN_CORE_H = \
   policy/policy.h \
   pow.h \
   protocol.h \
+  radix.h \
   random.h \
+  rcu.h \
+  reverse_iterator.h \
   reverselock.h \
   rpc/blockchain.h \
   rpc/client.h \
+  rpc/command.h \
   rpc/jsonrpcrequest.h \
   rpc/mining.h \
   rpc/misc.h \
@@ -200,16 +205,17 @@ BITCOIN_CORE_H = \
   validation.h \
   validationinterface.h \
   versionbits.h \
+  walletinitinterface.h \
   wallet/coincontrol.h \
   wallet/crypter.h \
   wallet/db.h \
   wallet/finaltx.h \
   wallet/rpcdump.h \
   wallet/fees.h \
-  wallet/init.h \
   wallet/rpcwallet.h \
   wallet/wallet.h \
   wallet/walletdb.h \
+  wallet/walletutil.h \
   warnings.h \
   zmq/zmqabstractnotifier.h \
   zmq/zmqconfig.h\
@@ -229,6 +235,7 @@ libbitcoin_server_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libbitcoin_server_a_SOURCES = \
   addrman.cpp \
   addrdb.cpp \
+  avalanche.cpp \
   bloom.cpp \
   blockencodings.cpp \
   chain.cpp \
@@ -296,6 +303,7 @@ libbitcoin_wallet_a_SOURCES = \
   wallet/rpcwallet.cpp \
   wallet/wallet.cpp \
   wallet/walletdb.cpp \
+  wallet/walletutil.cpp \
   $(BITCOIN_CORE_H)
 
 # crypto primitives library
@@ -426,6 +434,7 @@ libbitcoin_util_a_SOURCES = \
   fs.cpp \
   logging.cpp \
   random.cpp \
+  rcu.cpp \
   rpc/protocol.cpp \
   support/cleanse.cpp \
   sync.cpp \

@@ -23,6 +23,7 @@
 #include "wallet/wallet.h"
 #include "wallet/walletdb.h"
 #endif
+#include "warnings.h"
 
 #include <univalue.h>
 
@@ -76,9 +77,10 @@ static UniValue getinfo(const Config &config, const JSONRPCRequest &request) {
             "unlocked for transfers, or 0 if the wallet is locked\n"
             "  \"paytxfee\": x.xxxx,         (numeric) the transaction fee set "
             "in " +
-            CURRENCY_UNIT + "/kB\n"
-                            "  \"relayfee\": x.xxxx,         (numeric) minimum "
-                            "relay fee for non-free transactions in " +
+            CURRENCY_UNIT +
+            "/kB\n"
+            "  \"relayfee\": x.xxxx,         (numeric) minimum relay fee for "
+            "non-free transactions in " +
             CURRENCY_UNIT +
             "/kB\n"
             "  \"errors\": \"...\"           (string) any error messages\n"
@@ -110,16 +112,14 @@ static UniValue getinfo(const Config &config, const JSONRPCRequest &request) {
     obj.pushKV("blocks", (int)chainActive.Height());
     obj.pushKV("timeoffset", GetTimeOffset());
     if (g_connman) {
-        obj.push_back(
-            Pair("connections",
-                 (int)g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL)));
+        obj.pushKV("connections",
+                   (int)g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL));
     }
-    obj.push_back(Pair("proxy", (proxy.IsValid() ? proxy.proxy.ToStringIPPort()
-                                                 : std::string())));
+    obj.pushKV("proxy", (proxy.IsValid() ? proxy.proxy.ToStringIPPort()
+                                         : std::string()));
     obj.pushKV("difficulty", double(GetDifficulty(chainActive.Tip())));
-    obj.push_back(Pair("testnet",
-                       config.GetChainParams().NetworkIDString() ==
-                           CBaseChainParams::TESTNET));
+    obj.pushKV("testnet", config.GetChainParams().NetworkIDString() ==
+                              CBaseChainParams::TESTNET);
 #ifdef ENABLE_WALLET
     if (pwallet) {
         obj.pushKV("keypoololdest", pwallet->GetOldestKeyPoolTime());
@@ -130,8 +130,8 @@ static UniValue getinfo(const Config &config, const JSONRPCRequest &request) {
     }
     obj.pushKV("paytxfee", ValueFromAmount(payTxFee.GetFeePerK()));
 #endif
-    obj.push_back(Pair("relayfee",
-                       ValueFromAmount(config.GetMinFeePerKB().GetFeePerK())));
+    obj.pushKV("relayfee",
+               ValueFromAmount(config.GetMinFeePerKB().GetFeePerK()));
     obj.pushKV("errors", GetWarnings("statusbar"));
     return obj;
 }
@@ -141,7 +141,7 @@ class DescribeAddressVisitor : public boost::static_visitor<UniValue> {
 public:
     CWallet *const pwallet;
 
-    DescribeAddressVisitor(CWallet *_pwallet) : pwallet(_pwallet) {}
+    explicit DescribeAddressVisitor(CWallet *_pwallet) : pwallet(_pwallet) {}
 
     UniValue operator()(const CNoDestination &dest) const {
         return UniValue(UniValue::VOBJ);
@@ -168,8 +168,7 @@ public:
             int nRequired;
             ExtractDestinations(subscript, whichType, addresses, nRequired);
             obj.pushKV("script", GetTxnOutputType(whichType));
-            obj.push_back(
-                Pair("hex", HexStr(subscript.begin(), subscript.end())));
+            obj.pushKV("hex", HexStr(subscript.begin(), subscript.end()));
             UniValue a(UniValue::VARR);
             for (const CTxDestination &addr : addresses) {
                 a.push_back(EncodeDestination(addr));
@@ -247,14 +246,13 @@ static UniValue validateaddress(const Config &config,
         ret.pushKV("address", currentAddress);
 
         CScript scriptPubKey = GetScriptForDestination(dest);
-        ret.push_back(Pair("scriptPubKey",
-                           HexStr(scriptPubKey.begin(), scriptPubKey.end())));
+        ret.pushKV("scriptPubKey",
+                   HexStr(scriptPubKey.begin(), scriptPubKey.end()));
 
 #ifdef ENABLE_WALLET
         isminetype mine = pwallet ? IsMine(*pwallet, dest) : ISMINE_NO;
         ret.pushKV("ismine", (mine & ISMINE_SPENDABLE) ? true : false);
-        ret.push_back(
-            Pair("iswatchonly", (mine & ISMINE_WATCH_ONLY) ? true : false));
+        ret.pushKV("iswatchonly", (mine & ISMINE_WATCH_ONLY) ? true : false);
         UniValue detail =
             boost::apply_visitor(DescribeAddressVisitor(pwallet), dest);
         ret.pushKVs(detail);
@@ -262,18 +260,25 @@ static UniValue validateaddress(const Config &config,
             ret.pushKV("account", pwallet->mapAddressBook[dest].name);
         }
         if (pwallet) {
-            const auto &meta = pwallet->mapKeyMetadata;
-            const CKeyID *keyID = boost::get<CKeyID>(&dest);
-            auto it = keyID ? meta.find(*keyID) : meta.end();
-            if (it == meta.end()) {
-                it = meta.find(CScriptID(scriptPubKey));
+            const CKeyMetadata *meta = nullptr;
+            if (const CKeyID *key_id = boost::get<CKeyID>(&dest)) {
+                auto it = pwallet->mapKeyMetadata.find(*key_id);
+                if (it != pwallet->mapKeyMetadata.end()) {
+                    meta = &it->second;
+                }
             }
-            if (it != meta.end()) {
-                ret.pushKV("timestamp", it->second.nCreateTime);
-                if (!it->second.hdKeypath.empty()) {
-                    ret.pushKV("hdkeypath", it->second.hdKeypath);
-                    ret.push_back(Pair("hdmasterkeyid",
-                                       it->second.hdMasterKeyID.GetHex()));
+            if (!meta) {
+                auto it =
+                    pwallet->m_script_metadata.find(CScriptID(scriptPubKey));
+                if (it != pwallet->m_script_metadata.end()) {
+                    meta = &it->second;
+                }
+            }
+            if (meta) {
+                ret.pushKV("timestamp", meta->nCreateTime);
+                if (!meta->hdKeypath.empty()) {
+                    ret.pushKV("hdkeypath", meta->hdKeypath);
+                    ret.pushKV("hdmasterkeyid", meta->hdMasterKeyID.GetHex());
                 }
             }
         }
@@ -510,8 +515,9 @@ static UniValue signmessagewithprivkey(const Config &config,
             HelpExampleCli("verifymessage", "\"1D1ZrZNe3JUo7ZycKEYQQiQAWd9y54F4"
                                             "XX\" \"signature\" \"my "
                                             "message\"") +
-            "\nAs json rpc\n" + HelpExampleRpc("signmessagewithprivkey",
-                                               "\"privkey\", \"my message\""));
+            "\nAs json rpc\n" +
+            HelpExampleRpc("signmessagewithprivkey",
+                           "\"privkey\", \"my message\""));
     }
 
     std::string strPrivkey = request.params[0].get_str();
@@ -781,7 +787,7 @@ UniValue getaddressmempool(const Config &config, const JSONRPCRequest& request)
 
     std::vector<std::pair<CMempoolAddressDeltaKey, CMempoolAddressDelta> > indexes;
 
-    if (!mempool.getAddressIndex(addresses, indexes)) {
+    if (!g_mempool.getAddressIndex(addresses, indexes)) {
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No information available for address");
     }
 

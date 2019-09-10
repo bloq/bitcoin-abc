@@ -217,13 +217,13 @@ void TxToJSON(const Config &config, const CTransaction &tx,
         if (mi != mapBlockIndex.end() && (*mi).second) {
             CBlockIndex *pindex = (*mi).second;
             if (chainActive.Contains(pindex)) {
-                entry.push_back(Pair("height", pindex->nHeight));
-                entry.push_back(Pair("confirmations", 1 + chainActive.Height() -
-                                                          pindex->nHeight));
+                entry.pushKV("height", pindex->nHeight);
+                entry.pushKV("confirmations", 1 + chainActive.Height() -
+                                                          pindex->nHeight);
                 entry.pushKV("time", pindex->GetBlockTime());
                 entry.pushKV("blocktime", pindex->GetBlockTime());
             } else {
-                entry.push_back(Pair("height", -1));
+                entry.pushKV("height", -1);
                 entry.pushKV("confirmations", 0);
             }
         }
@@ -778,7 +778,7 @@ static UniValue decoderawtransaction(const Config &config,
     }
 
     UniValue result(UniValue::VOBJ);
-    TxToJSON(config, CTransaction(std::move(mtx)), uint256(), result);
+    TxToUniv(CTransaction(std::move(mtx)), uint256(), result);
 
     return result;
 }
@@ -822,7 +822,7 @@ static UniValue decodescript(const Config &config,
         // Empty scripts are valid.
     }
 
-    ScriptPubKeyToJSON(config, script, r, false);
+    ScriptPubKeyToUniv(script, r, false);
 
     UniValue type;
     type = find_value(r, "type");
@@ -844,8 +844,8 @@ static void TxInErrorToJSON(const CTxIn &txin, UniValue &vErrorsRet,
     UniValue entry(UniValue::VOBJ);
     entry.pushKV("txid", txin.prevout.GetTxId().ToString());
     entry.pushKV("vout", uint64_t(txin.prevout.GetN()));
-    entry.push_back(Pair("scriptSig",
-                         HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
+    entry.pushKV("scriptSig",
+                 HexStr(txin.scriptSig.begin(), txin.scriptSig.end()));
     entry.pushKV("sequence", uint64_t(txin.nSequence));
     entry.pushKV("error", strMessage);
     vErrorsRet.push_back(entry);
@@ -903,9 +903,9 @@ UniValue combinerawtransaction(const Config &config,
     CCoinsViewCache view(&viewDummy);
     {
         LOCK(cs_main);
-        LOCK(mempool.cs);
+        LOCK(g_mempool.cs);
         CCoinsViewCache &viewChain = *pcoinsTip;
-        CCoinsViewMemPool viewMempool(&viewChain, mempool);
+        CCoinsViewMemPool viewMempool(&viewChain, g_mempool);
         // temporarily switch cache backend to db+mempool view
         view.SetBackend(viewMempool);
 
@@ -1068,9 +1068,9 @@ static UniValue signrawtransaction(const Config &config,
     CCoinsView viewDummy;
     CCoinsViewCache view(&viewDummy);
     {
-        LOCK(mempool.cs);
+        LOCK(g_mempool.cs);
         CCoinsViewCache &viewChain = *pcoinsTip;
-        CCoinsViewMemPool viewMempool(&viewChain, mempool);
+        CCoinsViewMemPool viewMempool(&viewChain, g_mempool);
         // Temporarily switch cache backend to db+mempool view.
         view.SetBackend(viewMempool);
 
@@ -1185,13 +1185,12 @@ static UniValue signrawtransaction(const Config &config,
             // signed:
             if (fGivenKeys && scriptPubKey.IsPayToScriptHash()) {
                 RPCTypeCheckObj(
-                    prevOut,
-                    {
-                        {"txid", UniValueType(UniValue::VSTR)},
-                        {"vout", UniValueType(UniValue::VNUM)},
-                        {"scriptPubKey", UniValueType(UniValue::VSTR)},
-                        {"redeemScript", UniValueType(UniValue::VSTR)},
-                    });
+                    prevOut, {
+                                 {"txid", UniValueType(UniValue::VSTR)},
+                                 {"vout", UniValueType(UniValue::VNUM)},
+                                 {"scriptPubKey", UniValueType(UniValue::VSTR)},
+                                 {"redeemScript", UniValueType(UniValue::VSTR)},
+                             });
                 UniValue v = find_value(prevOut, "redeemScript");
                 if (!v.isNull()) {
                     std::vector<uint8_t> rsData(ParseHexV(v, "redeemScript"));
@@ -1276,7 +1275,16 @@ static UniValue signrawtransaction(const Config &config,
         if (!VerifyScript(
                 txin.scriptSig, prevPubKey, STANDARD_SCRIPT_VERIFY_FLAGS,
                 TransactionSignatureChecker(&txConst, i, amount), &serror)) {
-            TxInErrorToJSON(txin, vErrors, ScriptErrorString(serror));
+            if (serror == SCRIPT_ERR_INVALID_STACK_OPERATION) {
+                // Unable to sign input and verification failed (possible
+                // attempt to partially sign).
+                TxInErrorToJSON(txin, vErrors,
+                                "Unable to sign input, invalid "
+                                "stack size (possibly missing "
+                                "key)");
+            } else {
+                TxInErrorToJSON(txin, vErrors, ScriptErrorString(serror));
+            }
         }
     }
 
@@ -1348,12 +1356,12 @@ static UniValue sendrawtransaction(const Config &config,
         fHaveChain = !existingCoin.IsSpent();
     }
 
-    bool fHaveMempool = mempool.exists(txid);
+    bool fHaveMempool = g_mempool.exists(txid);
     if (!fHaveMempool && !fHaveChain) {
         // Push to local node and sync with wallets.
         CValidationState state;
         bool fMissingInputs;
-        if (!AcceptToMemoryPool(config, mempool, state, std::move(tx),
+        if (!AcceptToMemoryPool(config, g_mempool, state, std::move(tx),
                                 fLimitFree, &fMissingInputs, false,
                                 nMaxRawTxFee)) {
             if (state.IsInvalid()) {
